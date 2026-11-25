@@ -111,6 +111,18 @@ TEST_F(DataMemTestbench, LoadByteSignedTest)
     top->funct3 = 0b100;
     top->eval();
     EXPECT_EQ(top->RD, 0x00000080);
+
+    // sb 0x7F to 0x301
+    top->A = 0x301;
+    top->WD = 0x7F;
+    top->WE = 1;
+    top->funct3 = 0b000;
+    runSimulation(1);
+
+    // lb: top bit is 0, so it stays positive
+    top->WE = 0;
+    top->eval();
+    EXPECT_EQ(top->RD, 0x0000007F);
 }
 
 TEST_F(DataMemTestbench, HalfWordTest)
@@ -132,6 +144,12 @@ TEST_F(DataMemTestbench, HalfWordTest)
     top->funct3 = 0b001;
     top->eval();
     EXPECT_EQ(top->RD, 0xFFFF8001);
+
+    // lhu from 0x402: the top half of WD was not written
+    top->A = 0x402;
+    top->funct3 = 0b101;
+    top->eval();
+    EXPECT_EQ(top->RD, 0x00000000);
 }
 
 TEST_F(DataMemTestbench, WriteEnableTest)
@@ -152,21 +170,63 @@ TEST_F(DataMemTestbench, WriteEnableTest)
     EXPECT_EQ(top->RD, 0x12345678);
 }
 
+TEST_F(DataMemTestbench, WriteOnClockEdgeTest)
+{
+    // set up sw 0xDEADBEEF to 0x600, but no clock edge yet
+    top->A = 0x600;
+    top->WD = 0xDEADBEEF;
+    top->WE = 1;
+    top->funct3 = 0b010;
+    top->eval();
+    EXPECT_EQ(top->RD, 0x00000000);
+
+    // rising edge: now it is written
+    runSimulation(1);
+    top->eval();
+    EXPECT_EQ(top->RD, 0xDEADBEEF);
+}
+
+TEST_F(DataMemTestbench, TopOfMemoryTest)
+{
+    // sw to the last word of the 128 KB (0x1FFFC - 0x1FFFF)
+    top->A = 0x1FFFC;
+    top->WD = 0x01020304;
+    top->WE = 1;
+    top->funct3 = 0b010;
+    runSimulation(1);
+
+    top->WE = 0;
+    top->eval();
+    EXPECT_EQ(top->RD, 0x01020304);
+}
+
 TEST_F(DataMemTestbench, DataHexTest)
 {
-    // main() wrote de ad be ef into data.hex, loaded at 0x10000
+    // main() wrote "I love iac" (in ASCII) into data.hex, loaded at 0x10000
+
+    // lbu: the first character 'I' (0x49) is at 0x10000
+    top->A = 0x10000;
+    top->funct3 = 0b100;
+    top->eval();
+    EXPECT_EQ(top->RD, 0x49);
+
+    // lbu: the last character 'c' (0x63) is at 0x10009
+    top->A = 0x10009;
+    top->eval();
+    EXPECT_EQ(top->RD, 0x63);
+
+    // lw: "I lo" is 49 20 6c 6f, little-endian so 'I' ends up as the lowest byte
     top->A = 0x10000;
     top->funct3 = 0b010;
     top->eval();
-
-    EXPECT_EQ(top->RD, 0xEFBEADDE);
+    EXPECT_EQ(top->RD, 0x6F6C2049);
 }
 
 int main(int argc, char **argv)
 {
     // data memory loads data.hex when it is created, so write it first
     FILE *f = fopen("data.hex", "w");
-    fputs("de\nad\nbe\nef\n", f);
+    fputs("49\n20\n6c\n6f\n76\n65\n20\n69\n61\n63\n", f);     // "I love iac" in ASCII
     fclose(f);
 
     top = new Vdut;
