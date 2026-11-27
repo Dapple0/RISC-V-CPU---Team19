@@ -1,4 +1,4 @@
-module Sign_Extend #(
+module sign_extend #(
     parameter WIDTH = 32
 ) (
     input  logic [WIDTH-1:0] instr,
